@@ -60,7 +60,7 @@ module.exports = async function handler(req, res) {
     const jobDelivery = formatDateLocal(15, TZ_MIN); // ahora + 15 min
     const jobPickup   = hasPickup ? formatDateLocal(5, TZ_MIN) : "";
 
-    // --- Payload Tookan ---
+    // --- Payload Tookan (sin templates ni meta_data) ---
     const tookanPayload = {
       api_key: apiKey,
       order_id: String(order_id),
@@ -89,13 +89,10 @@ module.exports = async function handler(req, res) {
       layout_type: 0,
       auto_assignment: 0,
 
-      // Extras
+      // Extras mínimos (sin template)
       tags: ["TakeApp", store_name],
-      custom_field_template: items.length ? "Items" : "",
-      meta_data: items.map(it => ({
-        label: it?.name || "Item",
-        data: `${it?.quantity ?? 1} x ${it?.price ?? ""}`
-      })),
+      custom_field_template: "",
+      meta_data: [],
       job_delivery_notes: notes || ""
     };
 
