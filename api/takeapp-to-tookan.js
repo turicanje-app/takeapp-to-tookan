@@ -1,111 +1,80 @@
-// ==== takeapp-to-tookan.js (CommonJS para Vercel) ====
-// CDMX = UTC-6 => -360 minutos
-const TZ_MIN = -360;
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Método no permitido" });
+  }
 
-/** Formatea fecha en hora local (no UTC) como 'YYYY-MM-DD HH:mm:ss' */
-function formatDateLocal(minutesAhead, tzMinutes) {
-  const nowUtcMs = Date.now();
-  const localMs = nowUtcMs + tzMinutes * 60 * 1000;       // mueve a hora local
-  const target = new Date(localMs + minutesAhead * 60 * 1000);
-
-  const pad = (n) => (n < 10 ? "0" + n : "" + n);
-  const Y = target.getUTCFullYear();
-  const M = pad(target.getUTCMonth() + 1);
-  const D = pad(target.getUTCDate());
-  const h = pad(target.getUTCHours());
-  const m = pad(target.getUTCMinutes());
-  const s = pad(target.getUTCSeconds());
-  return `${Y}-${M}-${D} ${h}:${m}:${s}`;
-}
-
-module.exports = async function handler(req, res) {
   try {
-    // Healthcheck
-    if (req.method === "GET") {
-      return res.status(200).json({ ok: true, msg: "takeapp-to-tookan alive" });
-    }
-    if (req.method !== "POST") {
-      return res.status(405).json({ ok: false, error: "Method not allowed" });
-    }
-
-    // ENV
-    const apiKey = process.env.TOOKAN_API_KEY;
-    const mapRaw = process.env.MERCHANT_MAP; // JSON: {"DEMO 2": 1723301}
-    if (!apiKey) return res.status(500).json({ ok: false, error: "Falta TOOKAN_API_KEY" });
-    if (!mapRaw) return res.status(500).json({ ok: false, error: "Falta MERCHANT_MAP" });
-
-    let merchantMap;
-    try { merchantMap = JSON.parse(mapRaw); }
-    catch { return res.status(500).json({ ok:false, error:"MERCHANT_MAP no es JSON válido"}); }
-
-    // Body
     const {
-      order_id, store_name,
-      customer_name, customer_phone, customer_email,
-      customer_address, customer_lat, customer_lng,
-      notes, items = [],
-      // Pickup opcional
-      pickup_address, pickup_name, pickup_phone, pickup_lat, pickup_lng
-    } = req.body || {};
+      order_id,
+      store_name,
+      customer_name,
+      customer_phone,
+      customer_email,
+      customer_address,
+      customer_lat,
+      customer_lng,
+      pickup_address,
+      pickup_name,
+      pickup_phone,
+      pickup_lat,
+      pickup_lng,
+      notes,
+      items
+    } = req.body;
 
-    if (!order_id)         return res.status(400).json({ ok:false, error:"Falta order_id" });
-    if (!store_name)       return res.status(400).json({ ok:false, error:"Falta store_name" });
-    if (!customer_address) return res.status(400).json({ ok:false, error:"Falta customer_address" });
+    // Configura tus credenciales y datos fijos
+    const apiKey = process.env.TOOKAN_API_KEY;
+    const merchantId = process.env.TOOKAN_MERCHANT_ID;
 
-    const merchantId = merchantMap[store_name];
-    if (!merchantId) return res.status(400).json({ ok:false, error:`No hay Merchant ID para '${store_name}'` });
+    // Calcular fecha/hora de entrega y recolección
+    const dtDelivery = new Date(Date.now() + 30 * 60 * 1000)
+      .toISOString()
+      .slice(0, 19)
+      .replace("T", " ");
+    const dtPickup = new Date(Date.now() + 5 * 60 * 1000)
+      .toISOString()
+      .slice(0, 19)
+      .replace("T", " ");
 
-    // Fechas locales (para evitar rechazos por timezone)
-    const hasPickup = !!pickup_address;
-    const jobDelivery = formatDateLocal(15, TZ_MIN); // ahora + 15 min
-    const jobPickup   = hasPickup ? formatDateLocal(5, TZ_MIN) : "";
+    const hasPickup = pickup_address ? 1 : 0;
 
-    // --- Payload Tookan (sin templates ni meta_data) ---
+    // Payload para Tookan
     const tookanPayload = {
       api_key: apiKey,
       order_id: String(order_id),
       job_description: `Pedido TakeApp ${order_id}`,
-
-      // Cliente / Drop-off
       customer_username: customer_name || "Cliente",
       customer_phone: customer_phone || "",
       customer_email: customer_email || "",
-      customer_address,                        // campo general
-      job_delivery_address: customer_address,  // explícito para Tookan
+      customer_address,
       latitude: customer_lat || "",
       longitude: customer_lng || "",
-
-      // Fechas / TZ
-      job_delivery_datetime: jobDelivery,      // 'YYYY-MM-DD HH:mm:ss'
-      job_pickup_datetime: jobPickup,          // '' si no hay pickup
-      timezone: TZ_MIN,                        // entero en MINUTOS
-
-      // Routing / negocio
+      job_delivery_datetime: dtDelivery,
+      job_pickup_datetime: hasPickup ? dtPickup : "",
+      timezone: -360, // Zona horaria en minutos (-6 hrs)
       merchant_id: merchantId,
-      team_id: "",           // si usas equipos, coloca el ID real
-      is_flexible: 0,
-      has_pickup: hasPickup ? 1 : 0,
+      tags: ["TakeApp", store_name],
+      custom_field_template: items.length ? "Items" : "",
+      meta_data: items.map((it) => ({
+        label: it?.name || "Item",
+        data: `${it?.quantity ?? 1} x ${it?.price ?? ""}`
+      })),
+      job_delivery_notes: notes || "",
+      has_pickup: hasPickup,
       has_delivery: 1,
       layout_type: 0,
-      auto_assignment: 0,
-
-      // Extras mínimos (sin template)
-      tags: ["TakeApp", store_name],
-      custom_field_template: "",
-      meta_data: [],
-      job_delivery_notes: notes || ""
+      auto_assignment: 0
     };
 
-    // Pickup (si aplica)
     if (hasPickup) {
-      tookanPayload.job_pickup_address = pickup_address; // explícito
-      tookanPayload.pickup_name = pickup_name || store_name;
+      tookanPayload.pickup_address = pickup_address;
+      tookanPayload.pickup_name = pickup_name || "";
       tookanPayload.pickup_phone = pickup_phone || "";
       tookanPayload.pickup_latitude = pickup_lat || "";
       tookanPayload.pickup_longitude = pickup_lng || "";
     }
 
-    // Llamada a Tookan
+    // Enviar a Tookan
     const resp = await fetch("https://api.tookanapp.com/v2/create_task", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -124,7 +93,11 @@ module.exports = async function handler(req, res) {
     }
 
     return res.status(200).json({ ok: true, tookan: data });
+
   } catch (err) {
-    return res.status(500).json({ ok:false, error: err?.message || "Error interno" });
+    return res.status(500).json({
+      ok: false,
+      error: err.message || "Error interno del servidor"
+    });
   }
-};
+}
