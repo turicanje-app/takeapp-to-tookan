@@ -1,11 +1,11 @@
-// CommonJS handler (Vercel sin ESM)
+// ==== takeapp-to-tookan.js (CommonJS para Vercel) ====
+
+// Formatea fecha en hora local a partir de un offset en minutos (CDMX = -360)
 function formatDateLocal(minutesAhead, tzMinutes) {
-  // Convierte "ahora" a hora local usando offset de zona (en minutos)
   const nowUtcMs = Date.now();
-  const localMs = nowUtcMs + tzMinutes * 60 * 1000; // tzMinutes=-360 para CDMX
+  const localMs = nowUtcMs + tzMinutes * 60 * 1000;         // mueve a hora local
   const target = new Date(localMs + minutesAhead * 60 * 1000);
 
-  // Formato 'YYYY-MM-DD HH:mm:ss'
   const pad = (n) => (n < 10 ? "0" + n : "" + n);
   const Y = target.getUTCFullYear();
   const M = pad(target.getUTCMonth() + 1);
@@ -13,11 +13,12 @@ function formatDateLocal(minutesAhead, tzMinutes) {
   const h = pad(target.getUTCHours());
   const m = pad(target.getUTCMinutes());
   const s = pad(target.getUTCSeconds());
-  return `${Y}-${M}-${D} ${h}:${m}:${s}`;
+  return `${Y}-${M}-${D} ${h}:${m}:${s}`; // 'YYYY-MM-DD HH:mm:ss'
 }
 
 module.exports = async function handler(req, res) {
   try {
+    // Healthcheck rápido
     if (req.method === "GET") {
       return res.status(200).json({ ok: true, msg: "takeapp-to-tookan alive" });
     }
@@ -25,23 +26,20 @@ module.exports = async function handler(req, res) {
       return res.status(405).json({ ok: false, error: "Method not allowed" });
     }
 
+    // ENV
     const apiKey = process.env.TOOKAN_API_KEY;
     const mapRaw = process.env.MERCHANT_MAP;
     if (!apiKey) return res.status(500).json({ ok: false, error: "Falta TOOKAN_API_KEY" });
     if (!mapRaw) return res.status(500).json({ ok: false, error: "Falta MERCHANT_MAP" });
 
     let merchantMap;
-    try {
-      merchantMap = JSON.parse(mapRaw);
-    } catch {
-      return res.status(500).json({ ok: false, error: "MERCHANT_MAP no es JSON válido" });
-    }
+    try { merchantMap = JSON.parse(mapRaw); }
+    catch { return res.status(500).json({ ok:false, error:"MERCHANT_MAP no es JSON válido"}); }
 
+    // Body
     const {
-      order_id, store_name, customer_name, customer_phone,
-      customer_email, customer_address, customer_lat, customer_lng,
-      notes, items = [],
-      // campos pickup opcionales
+      order_id, store_name, customer_name, customer_phone, customer_email,
+      customer_address, customer_lat, customer_lng, notes, items = [],
       pickup_address, pickup_name, pickup_phone, pickup_lat, pickup_lng
     } = req.body || {};
 
@@ -50,54 +48,63 @@ module.exports = async function handler(req, res) {
     if (!customer_address) return res.status(400).json({ ok:false, error:"Falta customer_address" });
 
     const merchantId = merchantMap[store_name];
-    if (!merchantId) {
-      return res.status(400).json({ ok:false, error:`No hay Merchant ID para '${store_name}'`});
-    }
+    if (!merchantId) return res.status(400).json({ ok:false, error:`No hay Merchant ID para '${store_name}'` });
 
-    // Zona horaria en minutos (CDMX = -360)
+    // Zona horaria: CDMX = -360 minutos
     const TZ_MIN = -360;
 
-    // Fechas en hora local (no UTC), para evitar rechazos por timezone
-    const jobDelivery = formatDateLocal(15, TZ_MIN); // ahora +15 min
+    // Fechas locales (evita rechazos por timezone)
     const hasPickup = !!pickup_address;
-    const jobPickup  = hasPickup ? formatDateLocal(5, TZ_MIN) : "";
+    const jobDelivery = formatDateLocal(15, TZ_MIN); // ahora +15 min
+    const jobPickup   = hasPickup ? formatDateLocal(5, TZ_MIN) : "";
 
+    // Payload Tookan
     const tookanPayload = {
-  api_key: apiKey,
-  order_id: String(order_id),
-  job_description: `Pedido TakeApp ${order_id}`,
-  customer_username: customer_name || "Cliente",
-  customer_phone: customer_phone || "",
-  customer_email: customer_email || "",
-  customer_address,
-  job_delivery_address: customer_address,  // <-- AGREGADO
-  latitude: customer_lat || "",
-  longitude: customer_lng || "",
-  job_delivery_datetime: jobDelivery,
-  job_pickup_datetime: jobPickup,
-  timezone: TZ_MIN,
-  merchant_id: merchantId,
-  tags: ["TakeApp", store_name],
-  custom_field_template: items.length ? "Items" : "",
-  meta_data: items.map(it => ({
-    label: it?.name || "Item",
-    data: `${it?.quantity ?? 1} x ${it?.price ?? ""}`
-  })),
-  job_delivery_notes: notes || "",
-  has_pickup: hasPickup ? 1 : 0,
-  has_delivery: 1,
-  layout_type: 0,
-  auto_assignment: 0
-};
+      api_key: apiKey,
+      order_id: String(order_id),
+      job_description: `Pedido TakeApp ${order_id}`,
 
+      // Cliente / Drop-off
+      customer_username: customer_name || "Cliente",
+      customer_phone: customer_phone || "",
+      customer_email: customer_email || "",
+      customer_address,                            // campo general
+      job_delivery_address: customer_address,      // <-- explícito para Tookan
+      latitude: customer_lat || "",
+      longitude: customer_lng || "",
+
+      // Fechas y zona
+      job_delivery_datetime: jobDelivery,
+      job_pickup_datetime: jobPickup,
+      timezone: TZ_MIN,                            // entero en minutos
+
+      // Routing / negocio
+      merchant_id: merchantId,
+      has_pickup: hasPickup ? 1 : 0,
+      has_delivery: 1,
+      layout_type: 0,
+      auto_assignment: 0,
+
+      // Extras
+      tags: ["TakeApp", store_name],
+      custom_field_template: items.length ? "Items" : "",
+      meta_data: items.map(it => ({
+        label: it?.name || "Item",
+        data: `${it?.quantity ?? 1} x ${it?.price ?? ""}`
+      })),
+      job_delivery_notes: notes || ""
+    };
+
+    // Pickup (si aplica)
     if (hasPickup) {
-      tookanPayload.pickup_address   = pickup_address;
-      tookanPayload.pickup_name      = pickup_name  || store_name;
-      tookanPayload.pickup_phone     = pickup_phone || "";
-      tookanPayload.pickup_latitude  = pickup_lat   || "";
-      tookanPayload.pickup_longitude = pickup_lng   || "";
+      tookanPayload.job_pickup_address = pickup_address; // <-- explícito
+      tookanPayload.pickup_name = pickup_name || store_name;
+      tookanPayload.pickup_phone = pickup_phone || "";
+      tookanPayload.pickup_latitude = pickup_lat || "";
+      tookanPayload.pickup_longitude = pickup_lng || "";
     }
 
+    // Llamada a Tookan
     const resp = await fetch("https://api.tookanapp.com/v2/create_task", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -117,6 +124,6 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({ ok: true, tookan: data });
   } catch (err) {
-    return res.status(500).json({ ok: false, error: err?.message || "Error interno" });
+    return res.status(500).json({ ok:false, error: err?.message || "Error interno" });
   }
 };
