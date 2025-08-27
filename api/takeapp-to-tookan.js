@@ -1,7 +1,23 @@
-// CommonJS export (sin ESM)
+// CommonJS handler (Vercel sin ESM)
+function formatDateLocal(minutesAhead, tzMinutes) {
+  // Convierte "ahora" a hora local usando offset de zona (en minutos)
+  const nowUtcMs = Date.now();
+  const localMs = nowUtcMs + tzMinutes * 60 * 1000; // tzMinutes=-360 para CDMX
+  const target = new Date(localMs + minutesAhead * 60 * 1000);
+
+  // Formato 'YYYY-MM-DD HH:mm:ss'
+  const pad = (n) => (n < 10 ? "0" + n : "" + n);
+  const Y = target.getUTCFullYear();
+  const M = pad(target.getUTCMonth() + 1);
+  const D = pad(target.getUTCDate());
+  const h = pad(target.getUTCHours());
+  const m = pad(target.getUTCMinutes());
+  const s = pad(target.getUTCSeconds());
+  return `${Y}-${M}-${D} ${h}:${m}:${s}`;
+}
+
 module.exports = async function handler(req, res) {
   try {
-    // Healthcheck
     if (req.method === "GET") {
       return res.status(200).json({ ok: true, msg: "takeapp-to-tookan alive" });
     }
@@ -24,8 +40,9 @@ module.exports = async function handler(req, res) {
     const {
       order_id, store_name, customer_name, customer_phone,
       customer_email, customer_address, customer_lat, customer_lng,
-      notes, items = [], pickup_address, pickup_name, pickup_phone,
-      pickup_lat, pickup_lng
+      notes, items = [],
+      // campos pickup opcionales
+      pickup_address, pickup_name, pickup_phone, pickup_lat, pickup_lng
     } = req.body || {};
 
     if (!order_id)         return res.status(400).json({ ok:false, error:"Falta order_id" });
@@ -37,12 +54,14 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ ok:false, error:`No hay Merchant ID para '${store_name}'`});
     }
 
-    // Tiempos
-    const dtDelivery = new Date(Date.now() + 15 * 60 * 1000).toISOString().slice(0,19).replace("T"," ");
-    const dtPickup   = new Date(Date.now() + 5  * 60 * 1000).toISOString().slice(0,19).replace("T"," ");
-    const hasPickup  = pickup_address ? 1 : 0;
+    // Zona horaria en minutos (CDMX = -360)
+    const TZ_MIN = -360;
 
-    // Payload Tookan
+    // Fechas en hora local (no UTC), para evitar rechazos por timezone
+    const jobDelivery = formatDateLocal(15, TZ_MIN); // ahora +15 min
+    const hasPickup = !!pickup_address;
+    const jobPickup  = hasPickup ? formatDateLocal(5, TZ_MIN) : "";
+
     const tookanPayload = {
       api_key: apiKey,
       order_id: String(order_id),
@@ -53,15 +72,18 @@ module.exports = async function handler(req, res) {
       customer_address,
       latitude: customer_lat || "",
       longitude: customer_lng || "",
-      job_delivery_datetime: dtDelivery,
-      job_pickup_datetime: hasPickup ? dtPickup : "",
-      timezone: -360,
+      job_delivery_datetime: jobDelivery,
+      job_pickup_datetime: jobPickup,
+      timezone: TZ_MIN,                 // <- entero en minutos
       merchant_id: merchantId,
       tags: ["TakeApp", store_name],
       custom_field_template: items.length ? "Items" : "",
-      meta_data: items.map(it => ({ label: it?.name || "Item", data: `${it?.quantity ?? 1} x ${it?.price ?? ""}` })),
+      meta_data: items.map(it => ({
+        label: it?.name || "Item",
+        data: `${it?.quantity ?? 1} x ${it?.price ?? ""}`
+      })),
       job_delivery_notes: notes || "",
-      has_pickup: hasPickup,
+      has_pickup: hasPickup ? 1 : 0,
       has_delivery: 1,
       layout_type: 0,
       auto_assignment: 0
@@ -80,14 +102,20 @@ module.exports = async function handler(req, res) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(tookanPayload)
     });
+
     const data = await resp.json().catch(() => ({}));
 
     if (!data || data.status !== 200) {
-      return res.status(502).json({ ok:false, error:"Tookan rechazó la solicitud", detail:data, sent:tookanPayload });
+      return res.status(502).json({
+        ok: false,
+        error: "Tookan rechazó la solicitud",
+        detail: data || null,
+        sent: tookanPayload
+      });
     }
 
-    return res.status(200).json({ ok:true, tookan:data });
+    return res.status(200).json({ ok: true, tookan: data });
   } catch (err) {
-    return res.status(500).json({ ok:false, error: err?.message || "Error interno" });
+    return res.status(500).json({ ok: false, error: err?.message || "Error interno" });
   }
 };
