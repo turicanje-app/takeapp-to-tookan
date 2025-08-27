@@ -55,7 +55,7 @@ module.exports = async function handler(req, res) {
       longitude: customer_lng || "",
       job_delivery_datetime: dtDelivery,
       job_pickup_datetime: hasPickup ? dtPickup : "",
-      timezone: "America/Mexico_City",   // <-- clave
+      timezone: "-06:00",
       merchant_id: merchantId,
       tags: ["TakeApp", store_name],
       custom_field_template: items.length ? "Items" : "",
