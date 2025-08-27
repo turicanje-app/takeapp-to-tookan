@@ -29,9 +29,9 @@ export default async function handler(req, res) {
     const merchantId = merchantMap[store_name];
     if (!merchantId) return res.status(400).json({ ok:false,error:`No hay Merchant ID para '${store_name}'`});
 
-    const dt = new Date(Date.now() + 15 * 60 * 1000).toISOString().slice(0,19).replace("T"," ");
+    const dtDelivery = new Date(Date.now() + 15 * 60 * 1000).toISOString().slice(0,19).replace("T"," ");
+    const dtPickup = new Date(Date.now() + 5 * 60 * 1000).toISOString().slice(0,19).replace("T"," "); // pickup 5 min antes
 
-    // Detecta si es pickup
     const hasPickup = pickup_address ? 1 : 0;
 
     const tookanPayload = {
@@ -44,7 +44,7 @@ export default async function handler(req, res) {
       customer_address,
       latitude: customer_lat || "",
       longitude: customer_lng || "",
-      job_delivery_datetime: dt,
+      job_delivery_datetime: dtDelivery,
       timezone: "-06:00",
       merchant_id: merchantId,
       tags: ["TakeApp", store_name],
@@ -60,6 +60,7 @@ export default async function handler(req, res) {
       tookanPayload.pickup_phone = pickup_phone || "";
       tookanPayload.pickup_latitude = pickup_lat || "";
       tookanPayload.pickup_longitude = pickup_lng || "";
+      tookanPayload.job_pickup_datetime = dtPickup;
     }
 
     const resp = await fetch("https://api.tookanapp.com/v2/create_task", {
