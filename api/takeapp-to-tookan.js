@@ -30,7 +30,7 @@ module.exports = async function handler(req, res) {
 
     // ENV
     const apiKey = process.env.TOOKAN_API_KEY;
-    const mapRaw = process.env.MERCHANT_MAP; // JSON: {"DEMO 2": 123456, ...}
+    const mapRaw = process.env.MERCHANT_MAP; // JSON: {"DEMO 2": 1723301}
     if (!apiKey) return res.status(500).json({ ok: false, error: "Falta TOOKAN_API_KEY" });
     if (!mapRaw) return res.status(500).json({ ok: false, error: "Falta MERCHANT_MAP" });
 
@@ -82,7 +82,7 @@ module.exports = async function handler(req, res) {
 
       // Routing / negocio
       merchant_id: merchantId,
-      team_id: "",           // si tienes Team ID, colócalo aquí (número o string)
+      team_id: "",           // si usas equipos, coloca el ID real
       is_flexible: 0,
       has_pickup: hasPickup ? 1 : 0,
       has_delivery: 1,
@@ -101,7 +101,7 @@ module.exports = async function handler(req, res) {
 
     // Pickup (si aplica)
     if (hasPickup) {
-      tookanPayload.job_pickup_address = pickup_address; // explícito para Tookan
+      tookanPayload.job_pickup_address = pickup_address; // explícito
       tookanPayload.pickup_name = pickup_name || store_name;
       tookanPayload.pickup_phone = pickup_phone || "";
       tookanPayload.pickup_latitude = pickup_lat || "";
@@ -114,6 +114,7 @@ module.exports = async function handler(req, res) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(tookanPayload)
     });
+
     const data = await resp.json().catch(() => ({}));
 
     if (!data || data.status !== 200) {
@@ -127,4 +128,6 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({ ok: true, tookan: data });
   } catch (err) {
-return res.status(500).json({ ok: false, error: "Internal Server Error" });
+    return res.status(500).json({ ok:false, error: err?.message || "Error interno" });
+  }
+};
