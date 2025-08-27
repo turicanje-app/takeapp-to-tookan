@@ -127,4 +127,4 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({ ok: true, tookan: data });
   } catch (err) {
-    return res.status(50
+return res.status(500).json({ ok: false, error: "Internal Server Error" });
