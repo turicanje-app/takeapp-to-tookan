@@ -1,9 +1,11 @@
 // ==== takeapp-to-tookan.js (CommonJS para Vercel) ====
+// CDMX = UTC-6 => -360 minutos
+const TZ_MIN = -360;
 
-// Formatea fecha en hora local a partir de un offset en minutos (CDMX = -360)
+/** Formatea fecha en hora local (no UTC) como 'YYYY-MM-DD HH:mm:ss' */
 function formatDateLocal(minutesAhead, tzMinutes) {
   const nowUtcMs = Date.now();
-  const localMs = nowUtcMs + tzMinutes * 60 * 1000;         // mueve a hora local
+  const localMs = nowUtcMs + tzMinutes * 60 * 1000;       // mueve a hora local
   const target = new Date(localMs + minutesAhead * 60 * 1000);
 
   const pad = (n) => (n < 10 ? "0" + n : "" + n);
@@ -13,12 +15,12 @@ function formatDateLocal(minutesAhead, tzMinutes) {
   const h = pad(target.getUTCHours());
   const m = pad(target.getUTCMinutes());
   const s = pad(target.getUTCSeconds());
-  return `${Y}-${M}-${D} ${h}:${m}:${s}`; // 'YYYY-MM-DD HH:mm:ss'
+  return `${Y}-${M}-${D} ${h}:${m}:${s}`;
 }
 
 module.exports = async function handler(req, res) {
   try {
-    // Healthcheck rápido
+    // Healthcheck
     if (req.method === "GET") {
       return res.status(200).json({ ok: true, msg: "takeapp-to-tookan alive" });
     }
@@ -28,7 +30,7 @@ module.exports = async function handler(req, res) {
 
     // ENV
     const apiKey = process.env.TOOKAN_API_KEY;
-    const mapRaw = process.env.MERCHANT_MAP;
+    const mapRaw = process.env.MERCHANT_MAP; // JSON: {"DEMO 2": 123456, ...}
     if (!apiKey) return res.status(500).json({ ok: false, error: "Falta TOOKAN_API_KEY" });
     if (!mapRaw) return res.status(500).json({ ok: false, error: "Falta MERCHANT_MAP" });
 
@@ -38,8 +40,11 @@ module.exports = async function handler(req, res) {
 
     // Body
     const {
-      order_id, store_name, customer_name, customer_phone, customer_email,
-      customer_address, customer_lat, customer_lng, notes, items = [],
+      order_id, store_name,
+      customer_name, customer_phone, customer_email,
+      customer_address, customer_lat, customer_lng,
+      notes, items = [],
+      // Pickup opcional
       pickup_address, pickup_name, pickup_phone, pickup_lat, pickup_lng
     } = req.body || {};
 
@@ -50,15 +55,12 @@ module.exports = async function handler(req, res) {
     const merchantId = merchantMap[store_name];
     if (!merchantId) return res.status(400).json({ ok:false, error:`No hay Merchant ID para '${store_name}'` });
 
-    // Zona horaria: CDMX = -360 minutos
-    const TZ_MIN = -360;
-
-    // Fechas locales (evita rechazos por timezone)
+    // Fechas locales (para evitar rechazos por timezone)
     const hasPickup = !!pickup_address;
-    const jobDelivery = formatDateLocal(15, TZ_MIN); // ahora +15 min
+    const jobDelivery = formatDateLocal(15, TZ_MIN); // ahora + 15 min
     const jobPickup   = hasPickup ? formatDateLocal(5, TZ_MIN) : "";
 
-    // Payload Tookan
+    // --- Payload Tookan ---
     const tookanPayload = {
       api_key: apiKey,
       order_id: String(order_id),
@@ -68,18 +70,20 @@ module.exports = async function handler(req, res) {
       customer_username: customer_name || "Cliente",
       customer_phone: customer_phone || "",
       customer_email: customer_email || "",
-      customer_address,                            // campo general
-      job_delivery_address: customer_address,      // <-- explícito para Tookan
+      customer_address,                        // campo general
+      job_delivery_address: customer_address,  // explícito para Tookan
       latitude: customer_lat || "",
       longitude: customer_lng || "",
 
-      // Fechas y zona
-      job_delivery_datetime: jobDelivery,
-      job_pickup_datetime: jobPickup,
-      timezone: TZ_MIN,                            // entero en minutos
+      // Fechas / TZ
+      job_delivery_datetime: jobDelivery,      // 'YYYY-MM-DD HH:mm:ss'
+      job_pickup_datetime: jobPickup,          // '' si no hay pickup
+      timezone: TZ_MIN,                        // entero en MINUTOS
 
       // Routing / negocio
       merchant_id: merchantId,
+      team_id: "",           // si tienes Team ID, colócalo aquí (número o string)
+      is_flexible: 0,
       has_pickup: hasPickup ? 1 : 0,
       has_delivery: 1,
       layout_type: 0,
@@ -97,7 +101,7 @@ module.exports = async function handler(req, res) {
 
     // Pickup (si aplica)
     if (hasPickup) {
-      tookanPayload.job_pickup_address = pickup_address; // <-- explícito
+      tookanPayload.job_pickup_address = pickup_address; // explícito para Tookan
       tookanPayload.pickup_name = pickup_name || store_name;
       tookanPayload.pickup_phone = pickup_phone || "";
       tookanPayload.pickup_latitude = pickup_lat || "";
@@ -110,7 +114,6 @@ module.exports = async function handler(req, res) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(tookanPayload)
     });
-
     const data = await resp.json().catch(() => ({}));
 
     if (!data || data.status !== 200) {
@@ -124,6 +127,4 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({ ok: true, tookan: data });
   } catch (err) {
-    return res.status(500).json({ ok:false, error: err?.message || "Error interno" });
-  }
-};
+    return res.status(50
