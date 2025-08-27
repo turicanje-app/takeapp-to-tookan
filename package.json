@@ -1,0 +1,7 @@
+{
+  "name": "takeapp-to-tookan",
+  "version": "1.0.0",
+  "description": "Serverless API for TakeApp -> Tookan",
+  "type": "commonjs",
+  "private": true
+}
