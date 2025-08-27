@@ -63,31 +63,32 @@ module.exports = async function handler(req, res) {
     const jobPickup  = hasPickup ? formatDateLocal(5, TZ_MIN) : "";
 
     const tookanPayload = {
-      api_key: apiKey,
-      order_id: String(order_id),
-      job_description: `Pedido TakeApp ${order_id}`,
-      customer_username: customer_name || "Cliente",
-      customer_phone: customer_phone || "",
-      customer_email: customer_email || "",
-      customer_address,
-      latitude: customer_lat || "",
-      longitude: customer_lng || "",
-      job_delivery_datetime: jobDelivery,
-      job_pickup_datetime: jobPickup,
-      timezone: TZ_MIN,                 // <- entero en minutos
-      merchant_id: merchantId,
-      tags: ["TakeApp", store_name],
-      custom_field_template: items.length ? "Items" : "",
-      meta_data: items.map(it => ({
-        label: it?.name || "Item",
-        data: `${it?.quantity ?? 1} x ${it?.price ?? ""}`
-      })),
-      job_delivery_notes: notes || "",
-      has_pickup: hasPickup ? 1 : 0,
-      has_delivery: 1,
-      layout_type: 0,
-      auto_assignment: 0
-    };
+  api_key: apiKey,
+  order_id: String(order_id),
+  job_description: `Pedido TakeApp ${order_id}`,
+  customer_username: customer_name || "Cliente",
+  customer_phone: customer_phone || "",
+  customer_email: customer_email || "",
+  customer_address,
+  job_delivery_address: customer_address,  // <-- AGREGADO
+  latitude: customer_lat || "",
+  longitude: customer_lng || "",
+  job_delivery_datetime: jobDelivery,
+  job_pickup_datetime: jobPickup,
+  timezone: TZ_MIN,
+  merchant_id: merchantId,
+  tags: ["TakeApp", store_name],
+  custom_field_template: items.length ? "Items" : "",
+  meta_data: items.map(it => ({
+    label: it?.name || "Item",
+    data: `${it?.quantity ?? 1} x ${it?.price ?? ""}`
+  })),
+  job_delivery_notes: notes || "",
+  has_pickup: hasPickup ? 1 : 0,
+  has_delivery: 1,
+  layout_type: 0,
+  auto_assignment: 0
+};
 
     if (hasPickup) {
       tookanPayload.pickup_address   = pickup_address;
